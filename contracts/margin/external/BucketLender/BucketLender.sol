@@ -322,6 +322,7 @@ contract BucketLender is
         assert(loanOffering.payer == address(this));
         assert(loanOffering.owner == address(this));
         require(loanOffering.taker == address(0));
+        require(loanOffering.feeRecipient == address(0));
         require(loanOffering.positionOwner == address(0));
         require(loanOffering.lenderFeeToken == address(0));
         require(loanOffering.takerFeeToken == address(0));
@@ -338,8 +339,8 @@ contract BucketLender is
         // CHECK VALUES32
         require(loanOffering.callTimeLimit == CALL_TIMELIMIT);
         require(loanOffering.maxDuration == MAX_DURATION);
-        require(loanOffering.rates.interestRate == INTEREST_RATE);
-        require(loanOffering.rates.interestPeriod == INTEREST_PERIOD);
+        assert(loanOffering.rates.interestRate == INTEREST_RATE);
+        assert(loanOffering.rates.interestPeriod == INTEREST_PERIOD);
 
         // no need to require anything about loanOffering.signature
 
@@ -546,6 +547,10 @@ contract BucketLender is
         returns (uint256)
     {
         require(
+            beneficiary != address(0),
+            "BucketLender#deposit: Beneficiary cannot be the zero address"
+        );
+        require(
             amount != 0,
             "BucketLender#deposit: Cannot deposit zero tokens"
         );
@@ -581,6 +586,11 @@ contract BucketLender is
                 weightForBucket[bucket]
             );
         }
+
+        require(
+            weightToAdd != 0,
+            "BucketLender#deposit: Cannot deposit for zero weight"
+        );
 
         accountForDeposit(bucket, beneficiary, weightToAdd);
 
@@ -640,10 +650,10 @@ contract BucketLender is
         uint256 totalOwedToken = 0;
         uint256 totalHeldToken = 0;
 
-        uint256 maxHeldToken =
-            Margin(DYDX_MARGIN).isPositionClosed(POSITION_ID) ?
-            TokenInteract.balanceOf(HELD_TOKEN, address(this)) :
-            0;
+        uint256 maxHeldToken = 0;
+        if (wasForceClosed) {
+            maxHeldToken = TokenInteract.balanceOf(HELD_TOKEN, address(this));
+        }
 
         for (uint256 i = 0; i < buckets.length; i++) {
             (uint256 owedTokenForBucket, uint256 heldTokenForBucket) = withdrawInternal(
@@ -811,6 +821,10 @@ contract BucketLender is
         // calculate the user's share
         uint256 bucketWeight = weightForBucket[bucket];
         uint256 userWeight = accountForWithdraw(bucket, msg.sender, maxWeight);
+
+        if (bucketWeight == 0) {
+            return (0, 0);
+        }
 
         uint256 owedTokenToWithdraw = withdrawInternalOwedToken(
             bucket,
@@ -1032,8 +1046,10 @@ contract BucketLender is
         uint256 userWeight = weightForBucketForAccount[bucket][account];
         uint256 weightToWithdraw = Math.min256(userWeight, maximumWeight);
 
-        weightForBucket[bucket] = weightForBucket[bucket].sub(weightToWithdraw);
-        weightForBucketForAccount[bucket][account] = userWeight.sub(weightToWithdraw);
+        if (weightToWithdraw != 0) {
+            weightForBucket[bucket] = weightForBucket[bucket].sub(weightToWithdraw);
+            weightForBucketForAccount[bucket][account] = userWeight.sub(weightToWithdraw);
+        }
 
         return weightToWithdraw;
     }
